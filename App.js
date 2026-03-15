@@ -1933,7 +1933,15 @@ export default function App() {
                           {assistSub === 'today' ? 'ASSISTS — TODAY' : 'ASSISTS — SEASON'}
                         </Text>
                         {assistSub === 'today' && players.length === 0 && (
-                          <Text style={styles.emptySub}>No tracked players have fixtures today</Text>
+                          <View>
+                            <Text style={styles.emptySub}>No tracked players have fixtures today</Text>
+                            <Text style={[styles.emptySub, {color: C.accent}]}>
+                              fixture teams: {todayTeamIds.size} | sample: {[...todayTeamIds][0]||'none'}
+                            </Text>
+                            <Text style={[styles.emptySub, {color: C.green}]}>
+                              player sample team_id: {String((data.top25||[])[0]?.team_id||'none')}
+                            </Text>
+                          </View>
                         )}
                         <View style={styles.legendRow}>
                           <Text style={styles.legendItem}>🛡️ Weak opp defense (GA/G ≥ 1.5)</Text>
