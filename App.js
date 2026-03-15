@@ -1667,25 +1667,18 @@ export default function App() {
   const [tsoaSub,     setTsoaSub]     = useState('today');
   const [autoRefresh, setAutoRefresh] = useState(true);
 
-  // Compute today's team IDs from fixtures (used for Today tab filtering)
+  // Build set of team IDs from upcoming + live fixtures
   const todayTeamIds = React.useMemo(() => {
     const ids = new Set();
-    const now = new Date();
-    const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
     if (!fixtures) return ids;
     Object.values(fixtures).forEach(matches => {
       matches.forEach(m => {
-        const ko = m.kickoff || m.date || '';
-        const koDate = ko.length === 8
-          ? `${ko.slice(0,4)}-${ko.slice(4,6)}-${ko.slice(6,8)}`
-          : ko.slice(0,10);
-        if (koDate === today) {
+        if (!m.finished) {
           if (m.home_id) ids.add(String(m.home_id));
           if (m.away_id) ids.add(String(m.away_id));
         }
       });
     });
-    console.log('[todayTeamIds] date='+today+' count='+ids.size+' sample='+([...ids][0]||'none'));
     return ids;
   }, [fixtures]);
   const [playerFilter, setPlayerFilter] = useState({
