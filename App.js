@@ -136,9 +136,13 @@ const StatRow = ({ label, value, highlight }) => (
 );
 
 // ── Player Detail Modal ───────────────────────────────────────────────────────
-const PlayerModal = ({ player, onClose, apiUrl, colabUrl }) => {
+const PlayerModal = ({ player, market: initialMarket = 'assist', allData, onClose, apiUrl, colabUrl }) => {
   const [l5Data,    setL5Data]    = useState(null);
   const [l5Loading, setL5Loading] = useState(false);
+  const [activeMarket, setActiveMarket] = useState(initialMarket);
+
+  // Reset market tab when player changes
+  useEffect(() => { setActiveMarket(initialMarket); }, [player?.player_id, initialMarket]);
 
   useEffect(() => {
     if (!player) return;
@@ -154,94 +158,189 @@ const PlayerModal = ({ player, onClose, apiUrl, colabUrl }) => {
   }, [player?.player_id]);
 
   if (!player) return null;
-  const isGoalScorer = player.gs_score !== undefined && player.tsoa_score === undefined;
-  const isTSOA       = player.tsoa_score !== undefined;
-  const score        = isTSOA ? player.tsoa_score : isGoalScorer ? player.gs_score : player.score;
+
+  // Find this player across all markets using player_id
+  const pid = player.player_id;
+  const assistPlayer = (allData?.all_players || allData?.top25 || []).find(p => p.player_id === pid) || (player.score !== undefined ? player : null);
+  const goalPlayer   = (allData?.gs_all || allData?.gs_top25 || []).find(p => p.player_id === pid) || (activeMarket === 'goal' ? player : null);
+  const tsoaPlayer   = (allData?.tsoa_all || allData?.tsoa_top25 || []).find(p => p.player_id === pid) || (activeMarket === 'tsoa' ? player : null);
+
+  // Active player data for current tab
+  const activePlayer = activeMarket === 'goal' ? goalPlayer : activeMarket === 'tsoa' ? tsoaPlayer : assistPlayer;
+  const displayPlayer = activePlayer || player;
+
+  const isGoalScorer = activeMarket === 'goal';
+  const isTSOA       = activeMarket === 'tsoa';
+  const score        = isTSOA ? displayPlayer.tsoa_score : isGoalScorer ? displayPlayer.gs_score : displayPlayer.score;
   const gap          = isGoalScorer || isTSOA
-    ? (player.xgot_gap >= 0 ? `+${player.xgot_gap}` : `${player.xgot_gap ?? 0}`)
-    : (player.xa_gap >= 0   ? `+${player.xa_gap}`   : `${player.xa_gap}`);
+    ? (displayPlayer.xgot_gap >= 0 ? `+${displayPlayer.xgot_gap}` : `${displayPlayer.xgot_gap ?? 0}`)
+    : (displayPlayer.xa_gap >= 0   ? `+${displayPlayer.xa_gap}`   : `${displayPlayer.xa_gap ?? 0}`);
+
+  // Which tabs are available for this player
+  const hasAssist = !!assistPlayer;
+  const hasGoal   = !!goalPlayer;
+  const hasTSOA   = !!tsoaPlayer;
 
   return (
     <Modal transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
-        <View style={styles.modalCard}>
+        <View style={[styles.modalCard, { maxHeight: '88%' }]}>
+          {/* Market tab switcher — outside ScrollView so always visible */}
+          <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: C.border, marginBottom: 12 }}>
+            {hasAssist && (
+              <TouchableOpacity
+                onPress={() => setActiveMarket('assist')}
+                style={{ flex: 1, paddingVertical: 10, alignItems: 'center',
+                  borderBottomWidth: activeMarket === 'assist' ? 2 : 0,
+                  borderBottomColor: C.accentLt }}>
+                <Text style={{ fontSize: 11, fontWeight: '700',
+                  color: activeMarket === 'assist' ? C.accentLt : C.muted }}>🅰️ ASSIST</Text>
+              </TouchableOpacity>
+            )}
+            {hasGoal && (
+              <TouchableOpacity
+                onPress={() => setActiveMarket('goal')}
+                style={{ flex: 1, paddingVertical: 10, alignItems: 'center',
+                  borderBottomWidth: activeMarket === 'goal' ? 2 : 0,
+                  borderBottomColor: C.orange }}>
+                <Text style={{ fontSize: 11, fontWeight: '700',
+                  color: activeMarket === 'goal' ? C.orange : C.muted }}>⚽ GOAL</Text>
+              </TouchableOpacity>
+            )}
+            {hasTSOA && (
+              <TouchableOpacity
+                onPress={() => setActiveMarket('tsoa')}
+                style={{ flex: 1, paddingVertical: 10, alignItems: 'center',
+                  borderBottomWidth: activeMarket === 'tsoa' ? 2 : 0,
+                  borderBottomColor: C.accentLt }}>
+                <Text style={{ fontSize: 11, fontWeight: '700',
+                  color: activeMarket === 'tsoa' ? C.accentLt : C.muted }}>🎯 TSOA</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
           <ScrollView showsVerticalScrollIndicator={false}>
           <View style={styles.modalHeader}>
             <View style={{ flex: 1, marginRight: 12 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                <PlayerAvatar url={player.player_img} name={player.player} size={52} />
+                <PlayerAvatar url={displayPlayer.player_img} name={displayPlayer.player} size={52} />
                 <View style={{ marginLeft: 10, flex: 1 }}>
-                  <Text style={styles.modalName}>{player.player}</Text>
-                  {isGoalScorer && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
-                      <Text style={{ color: C.orange, fontSize: 11, fontWeight: '700' }}>⚽ GOAL SCORER</Text>
-                    </View>
-                  )}
-                  {isTSOA && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
-                      <Text style={{ color: C.accent, fontSize: 11, fontWeight: '700' }}>🎯 TO SCORE OR ASSIST</Text>
-                    </View>
-                  )}
+                  <Text style={styles.modalName}>{displayPlayer.player}</Text>
                 </View>
               </View>
               <Text style={styles.modalSub}>
-                {player.team}  ·  {shortLeague(player.league)}
+                {displayPlayer.team}  ·  {shortLeague(displayPlayer.league)}
               </Text>
-              {player.form && player.form.length > 0 && (
+              {displayPlayer.form && displayPlayer.form.length > 0 && (
                 <View style={{ marginTop: 6 }}>
-                  <FormPills form={player.form} />
+                  <FormPills form={displayPlayer.form} />
                 </View>
               )}
             </View>
             <View style={styles.scoreBadgeLarge}>
               <Text style={[styles.scoreBadgeText, { color: scoreColor(score) }]}>
-                {score?.toFixed(2)}
+                {score != null ? score.toFixed(2) : '—'}
               </Text>
             </View>
           </View>
 
-          {/* Next opponent */}
-          {player.next_opponent && (
-            <View style={[styles.nextOppRow,
-              player.weak_opp_def && styles.nextOppRowWeak]}>
-              <Text style={styles.nextOppLabel}>Next: </Text>
-              <Text style={styles.nextOppTeam}>{player.next_opponent}</Text>
-              {player.weak_opp_def && (
-                <Text style={styles.weakBadge}> 🛡️ Weak Defense</Text>
-              )}
-              {player.next_kickoff && (
-                <Text style={styles.nextOppTime}>
-                  {' · '}{formatKickoff(player.next_kickoff)}
-                </Text>
-              )}
-            </View>
-          )}
-
-          {/* Goal scorer extra stats */}
-          {isGoalScorer && (
+          {/* Assist stats bar — matches Goals layout */}
+          {/* Unified stat bar — responds to active market tab */}
+          {activeMarket === 'assist' && assistPlayer && (
             <View style={styles.gsStatsRow}>
               <View style={styles.gsStatItem}>
-                <Text style={styles.gsStatVal}>⚽ {player.goals}</Text>
+                <Text style={styles.gsStatVal}>🅰️ {assistPlayer.assists ?? '—'}</Text>
+                <Text style={styles.gsStatLabel}>Assists</Text>
+              </View>
+              <View style={styles.gsStatItem}>
+                <Text style={styles.gsStatVal}>{assistPlayer.xa?.toFixed(1) ?? '—'}</Text>
+                <Text style={styles.gsStatLabel}>xA</Text>
+              </View>
+              <View style={styles.gsStatItem}>
+                <Text style={[styles.gsStatVal, assistPlayer.xa_gap > 0 && { color: C.green }]}>
+                  {assistPlayer.xa_gap >= 0 ? `+${assistPlayer.xa_gap}` : assistPlayer.xa_gap ?? '—'}
+                </Text>
+                <Text style={styles.gsStatLabel}>xA Gap</Text>
+              </View>
+              <View style={styles.gsStatItem}>
+                <Text style={styles.gsStatVal}>{assistPlayer.chances_per_game?.toFixed(2) ?? '—'}</Text>
+                <Text style={styles.gsStatLabel}>CC/G</Text>
+              </View>
+              <View style={styles.gsStatItem}>
+                <Text style={styles.gsStatVal}>{assistPlayer.big_chances ?? '—'}</Text>
+                <Text style={styles.gsStatLabel}>BC</Text>
+              </View>
+            </View>
+          )}
+          {activeMarket === 'goal' && goalPlayer && (
+            <View style={styles.gsStatsRow}>
+              <View style={styles.gsStatItem}>
+                <Text style={styles.gsStatVal}>⚽ {goalPlayer.goals ?? '—'}</Text>
                 <Text style={styles.gsStatLabel}>Goals</Text>
               </View>
               <View style={styles.gsStatItem}>
-                <Text style={styles.gsStatVal}>{player.xg?.toFixed(1)}</Text>
+                <Text style={styles.gsStatVal}>{goalPlayer.xg?.toFixed(1) ?? '—'}</Text>
                 <Text style={styles.gsStatLabel}>xG</Text>
               </View>
               <View style={styles.gsStatItem}>
-                <Text style={styles.gsStatVal}>{player.xgot?.toFixed(1)}</Text>
+                <Text style={styles.gsStatVal}>{goalPlayer.xgot?.toFixed(1) ?? '—'}</Text>
                 <Text style={styles.gsStatLabel}>xGOT</Text>
               </View>
               <View style={styles.gsStatItem}>
-                <Text style={[styles.gsStatVal, player.xgot_gap > 0 && { color: C.green }]}>
-                  {gap}
+                <Text style={[styles.gsStatVal, goalPlayer.xgot_gap > 0 && { color: C.green }]}>
+                  {goalPlayer.xgot_gap >= 0 ? `+${goalPlayer.xgot_gap}` : goalPlayer.xgot_gap ?? '—'}
                 </Text>
                 <Text style={styles.gsStatLabel}>xGOT Gap</Text>
               </View>
               <View style={styles.gsStatItem}>
-                <Text style={styles.gsStatVal}>{player.sot_per90?.toFixed(2)}</Text>
+                <Text style={styles.gsStatVal}>{goalPlayer.sot_per90?.toFixed(2) ?? '—'}</Text>
                 <Text style={styles.gsStatLabel}>SOT/90</Text>
               </View>
+            </View>
+          )}
+          {activeMarket === 'tsoa' && tsoaPlayer && (
+            <View style={styles.gsStatsRow}>
+              <View style={styles.gsStatItem}>
+                <Text style={styles.gsStatVal}>⚽ {tsoaPlayer.goals ?? '—'}</Text>
+                <Text style={styles.gsStatLabel}>Goals</Text>
+              </View>
+              <View style={styles.gsStatItem}>
+                <Text style={styles.gsStatVal}>🅰️ {tsoaPlayer.assists ?? '—'}</Text>
+                <Text style={styles.gsStatLabel}>Assists</Text>
+              </View>
+              <View style={styles.gsStatItem}>
+                <Text style={[styles.gsStatVal, tsoaPlayer.xgot_gap > 0 && { color: C.green }]}>
+                  {tsoaPlayer.xgot_gap >= 0 ? `+${tsoaPlayer.xgot_gap}` : tsoaPlayer.xgot_gap ?? '—'}
+                </Text>
+                <Text style={styles.gsStatLabel}>xGOT Gap</Text>
+              </View>
+              <View style={styles.gsStatItem}>
+                <Text style={[styles.gsStatVal, tsoaPlayer.xa_gap > 0 && { color: C.green }]}>
+                  {tsoaPlayer.xa_gap >= 0 ? `+${tsoaPlayer.xa_gap}` : tsoaPlayer.xa_gap ?? '—'}
+                </Text>
+                <Text style={styles.gsStatLabel}>xA Gap</Text>
+              </View>
+              <View style={styles.gsStatItem}>
+                <Text style={styles.gsStatVal}>{tsoaPlayer.bc_combined ?? '—'}</Text>
+                <Text style={styles.gsStatLabel}>BC</Text>
+              </View>
+            </View>
+          )}
+
+          {/* Next opponent */}
+          {displayPlayer.next_opponent && (
+            <View style={[styles.nextOppRow,
+              displayPlayer.weak_opp_def && styles.nextOppRowWeak]}>
+              <Text style={styles.nextOppLabel}>Next: </Text>
+              <Text style={styles.nextOppTeam}>{displayPlayer.next_opponent}</Text>
+              {displayPlayer.weak_opp_def && (
+                <Text style={styles.weakBadge}> 🛡️ Weak Defense</Text>
+              )}
+              {displayPlayer.next_kickoff && (
+                <Text style={styles.nextOppTime}>
+                  {' · '}{formatKickoff(displayPlayer.next_kickoff)}
+                </Text>
+              )}
             </View>
           )}
 
@@ -249,49 +348,49 @@ const PlayerModal = ({ player, onClose, apiUrl, colabUrl }) => {
 
           <Text style={styles.sectionLabel}>FORMULA BREAKDOWN</Text>
           {isTSOA ? (<>
-            <StatRow label="xG/90      (×0.25)"  value={player.xg_per90?.toFixed(2)} />
-            <StatRow label="xA/90      (×0.25)"  value={player.xa_per90?.toFixed(2)} />
-            <StatRow label="xGOT Gap   (×0.20)"  value={player.xgot_gap?.toFixed(2)} highlight={player.xgot_gap > 0} />
-            <StatRow label="xA Gap     (×0.20)"  value={player.xa_gap?.toFixed(2)}   highlight={player.xa_gap > 0} />
-            <StatRow label="BC Combined(×0.10)"  value={player.bc_combined} />
+            <StatRow label="xG/90      (×0.25)"  value={displayPlayer.xg_per90?.toFixed(2)} />
+            <StatRow label="xA/90      (×0.25)"  value={displayPlayer.xa_per90?.toFixed(2)} />
+            <StatRow label="xGOT Gap   (×0.20)"  value={displayPlayer.xgot_gap?.toFixed(2)} highlight={displayPlayer.xgot_gap > 0} />
+            <StatRow label="xA Gap     (×0.20)"  value={displayPlayer.xa_gap?.toFixed(2)}   highlight={displayPlayer.xa_gap > 0} />
+            <StatRow label="BC Combined(×0.10)"  value={displayPlayer.bc_combined} />
           </>) : isGoalScorer ? (<>
-            <StatRow label="xGOT Gap  (×0.35)"    value={gap}                                    highlight={player.xgot_gap > 0} />
-            <StatRow label="SOT/90   (×0.25)"      value={player.sot_per90?.toFixed(2)} />
-            <StatRow label="xG/90    (×0.20)"      value={player.xg_per90?.toFixed(2)} />
-            <StatRow label="BC Missed (×0.20)"     value={player.big_chances_missed} />
+            <StatRow label="xGOT Gap  (×0.35)"    value={gap}                                    highlight={displayPlayer.xgot_gap > 0} />
+            <StatRow label="SOT/90   (×0.25)"      value={displayPlayer.sot_per90?.toFixed(2)} />
+            <StatRow label="xG/90    (×0.20)"      value={displayPlayer.xg_per90?.toFixed(2)} />
+            <StatRow label="BC Missed (×0.20)"     value={displayPlayer.big_chances_missed} />
           </>) : (<>
-            <StatRow label="xA Gap  (×0.40)"      value={gap}                                highlight={player.xa_gap > 0} />
-            <StatRow label="CC/Game (×0.30)"       value={player.chances_per_game?.toFixed(2)} />
-            <StatRow label="Big Chances (×0.20)"   value={player.big_chances} />
-            <StatRow label="Penalties Won (×0.10)" value={player.penalties_won} />
+            <StatRow label="xA Gap  (×0.40)"      value={gap}                                highlight={displayPlayer.xa_gap > 0} />
+            <StatRow label="CC/Game (×0.30)"       value={displayPlayer.chances_per_game?.toFixed(2)} />
+            <StatRow label="Big Chances (×0.20)"   value={displayPlayer.big_chances} />
+            <StatRow label="Penalties Won (×0.10)" value={displayPlayer.penalties_won} />
           </>)}
 
           <View style={styles.divider} />
 
           <Text style={styles.sectionLabel}>RAW STATS</Text>
           {isTSOA ? (<>
-            <StatRow label="Goals"      value={player.goals} />
-            <StatRow label="Assists"    value={player.assists} />
-            <StatRow label="xG/90"      value={player.xg_per90?.toFixed(2)} />
-            <StatRow label="xA/90"      value={player.xa_per90?.toFixed(2)} />
-            <StatRow label="xGOT Gap"   value={player.xgot_gap?.toFixed(2)} highlight={player.xgot_gap > 0} />
-            <StatRow label="xA Gap"     value={player.xa_gap?.toFixed(2)}   highlight={player.xa_gap > 0} />
-            <StatRow label="BC Combined"value={player.bc_combined} />
+            <StatRow label="Goals"      value={displayPlayer.goals} />
+            <StatRow label="Assists"    value={displayPlayer.assists} />
+            <StatRow label="xG/90"      value={displayPlayer.xg_per90?.toFixed(2)} />
+            <StatRow label="xA/90"      value={displayPlayer.xa_per90?.toFixed(2)} />
+            <StatRow label="xGOT Gap"   value={displayPlayer.xgot_gap?.toFixed(2)} highlight={displayPlayer.xgot_gap > 0} />
+            <StatRow label="xA Gap"     value={displayPlayer.xa_gap?.toFixed(2)}   highlight={displayPlayer.xa_gap > 0} />
+            <StatRow label="BC Combined"value={displayPlayer.bc_combined} />
           </>) : isGoalScorer ? (<>
-            <StatRow label="Goals"     value={player.goals} />
-            <StatRow label="xG"        value={player.xg?.toFixed(2)} />
-            <StatRow label="xGOT"      value={player.xgot?.toFixed(2)} />
-            <StatRow label="xGOT Gap"  value={gap} highlight={player.xgot_gap > 0} />
-            <StatRow label="SOT/90"    value={player.sot_per90?.toFixed(2)} />
-            <StatRow label="Shots/90"  value={player.shots_per90?.toFixed(2)} />
-            <StatRow label="BC Missed" value={player.big_chances_missed} />
+            <StatRow label="Goals"     value={displayPlayer.goals} />
+            <StatRow label="xG"        value={displayPlayer.xg?.toFixed(2)} />
+            <StatRow label="xGOT"      value={displayPlayer.xgot?.toFixed(2)} />
+            <StatRow label="xGOT Gap"  value={gap} highlight={displayPlayer.xgot_gap > 0} />
+            <StatRow label="SOT/90"    value={displayPlayer.sot_per90?.toFixed(2)} />
+            <StatRow label="Shots/90"  value={displayPlayer.shots_per90?.toFixed(2)} />
+            <StatRow label="BC Missed" value={displayPlayer.big_chances_missed} />
           </>) : (<>
-            <StatRow label="Assists"  value={player.assists} />
-            <StatRow label="xA"       value={player.xa?.toFixed(2)} />
-            <StatRow label="xA Gap"   value={gap} highlight={player.xa_gap > 0} />
+            <StatRow label="Assists"  value={displayPlayer.assists} />
+            <StatRow label="xA"       value={displayPlayer.xa?.toFixed(2)} />
+            <StatRow label="xA Gap"   value={gap} highlight={displayPlayer.xa_gap > 0} />
           </>)}
-          {player.form_score != null && (
-            <StatRow label="Form (last 5)" value={`${(player.form_score * 100).toFixed(0)}%`} />
+          {displayPlayer.form_score != null && (
+            <StatRow label="Form (last 5)" value={`${(displayPlayer.form_score * 100).toFixed(0)}%`} />
           )}
 
           {/* L5 Games — only show when Colab is connected */}
@@ -1720,6 +1819,28 @@ export default function App() {
   const [tsoaSub,     setTsoaSub]     = useState('today');
   const [autoRefresh, setAutoRefresh] = useState(true);
 
+
+  const [playerFilter, setPlayerFilter] = useState({
+    minAssists: 0,
+    minXaGap:   -99,
+    minGoals:   0,
+    minXgGap:   0,
+    minTSOAGoals:   0,
+    minTSOAAssists: 0,
+    league:     'All',
+    position:   'All',
+    weakOpp:    false,
+    minWStreak: 0,
+    showFilter: false,
+    search:     '',
+  });
+  const [standLeague, setStandLeague] = useState('Premier League');
+  const [sortCol,    setSortCol]    = useState('table_pos');
+  const [sortAsc,    setSortAsc]    = useState(true);
+  const [standTeam,  setStandTeam]  = useState(null);
+  const [tab,       setTab]       = useState('fixtures');
+  const [data,      setData]      = useState(null);
+  const [fixtures,  setFixtures]  = useState(null);
   // Shared team name normalizer
   const normTeam = s => (s||'').toLowerCase().replace(/fc|af|sc|ac|cf|fk|sk|bc/g,'').replace(/[^a-z0-9]/g,'');
 
@@ -1749,28 +1870,6 @@ export default function App() {
     });
     return names;
   }, [fixtures]);
-
-  const [playerFilter, setPlayerFilter] = useState({
-    minAssists: 0,
-    minXaGap:   -99,
-    minGoals:   0,
-    minXgGap:   0,
-    minTSOAGoals:   0,
-    minTSOAAssists: 0,
-    league:     'All',
-    position:   'All',
-    weakOpp:    false,
-    minWStreak: 0,
-    showFilter: false,
-    search:     '',
-  });
-  const [standLeague, setStandLeague] = useState('Premier League');
-  const [sortCol,    setSortCol]    = useState('table_pos');
-  const [sortAsc,    setSortAsc]    = useState(true);
-  const [standTeam,  setStandTeam]  = useState(null);
-  const [tab,       setTab]       = useState('fixtures');
-  const [data,      setData]      = useState(null);
-  const [fixtures,  setFixtures]  = useState(null);
   const [loading,         setLoading]         = useState(false);
   const [fixturesLoading, setFixturesLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -1968,11 +2067,11 @@ export default function App() {
       {tab === 'assists' && (
         <View style={styles.flex}>
           <SubTabBar
-            tabs={[['today','Today'],['season','Season'],['all','All Players'],['leagues','By League']]}
+            tabs={[['today','Today'],['all','All Players'],['leagues','By League']]}
             active={assistSub}
             onChange={setAssistSub}
           />
-          {(assistSub === 'today' || assistSub === 'season') && (
+          {(assistSub === 'today' || assistSub === 'all') && (
             loading ? <View style={styles.center}><ActivityIndicator size="large" color={C.accent} /></View>
             : !hasData ? <View style={styles.center}>
                 <Text style={styles.emptyIcon}>📊</Text>
@@ -1982,14 +2081,14 @@ export default function App() {
                 </TouchableOpacity>
               </View>
             : (() => {
-                const todayPlayers = (data.top25 || []).filter(p => todayFixtureTeams.has(normTeam(p.team)));
-                const players = assistSub === 'today' ? todayPlayers : (data.top25 || []);
+                const todayPlayers = (data.all_players || data.top25 || []).filter(p => todayFixtureTeams.has(normTeam(p.team))).sort((a,b) => b.score - a.score).slice(0,50);
+                const players = assistSub === 'today' ? todayPlayers : (data.all_players || data.top25 || []);
                 return (
                   <FlatList
                     data={players}
                     keyExtractor={(p,i) => p.player+i}
                     renderItem={({ item, index }) => (
-                      <PlayerRow player={item} rank={index+1} onPress={setSelectedPlayer} />
+                      <PlayerRow player={item} rank={index+1} onPress={(p) => setSelectedPlayer({player:p, market:'assist'})} />
                     )}
                     contentContainerStyle={{ paddingBottom: 40 }}
                     refreshControl={
@@ -1999,7 +2098,7 @@ export default function App() {
                     ListHeaderComponent={
                       <View>
                         <Text style={styles.listHeader}>
-                          {assistSub === 'today' ? 'ASSISTS — TODAY' : 'ASSISTS — SEASON'}
+                          {assistSub === 'today' ? 'ASSISTS — TODAY' : 'ASSISTS — ALL PLAYERS'}
                         </Text>
                         {assistSub === 'today' && players.length === 0 && (
                           <Text style={styles.emptySub}>No tracked players in this fixture date</Text>
@@ -2018,7 +2117,7 @@ export default function App() {
               data={data}
               filter={playerFilter}
               setFilter={setPlayerFilter}
-              onPlayerPress={setSelectedPlayer}
+              onPlayerPress={(p) => setSelectedPlayer({player:p, market:'assist'})}
             />
           )}
           {assistSub === 'leagues' && (
@@ -2030,11 +2129,11 @@ export default function App() {
       {tab === 'goals' && (
         <View style={styles.flex}>
           <SubTabBar
-            tabs={[['today','Today'],['season','Season'],['all','All Players'],['leagues','By League']]}
+            tabs={[['today','Today'],['all','All Players'],['leagues','By League']]}
             active={goalSub}
             onChange={setGoalSub}
           />
-          {(goalSub === 'today' || goalSub === 'season') && (
+          {(goalSub === 'today' || goalSub === 'all') && (
             loading ? <View style={styles.center}><ActivityIndicator size="large" color={C.accent} /></View>
             : !hasData ? <View style={styles.center}>
                 <Text style={styles.emptyIcon}>⚽</Text>
@@ -2044,14 +2143,14 @@ export default function App() {
                 </TouchableOpacity>
               </View>
             : (() => {
-                const todayPlayers = (data?.gs_top25 || []).filter(p => todayFixtureTeams.has(normTeam(p.team)));
-                const players = goalSub === 'today' ? todayPlayers : (data?.gs_top25 || []);
+                const todayPlayers = (data?.gs_all || data?.gs_top25 || []).filter(p => todayFixtureTeams.has(normTeam(p.team))).sort((a,b) => b.gs_score - a.gs_score).slice(0,50);
+                const players = goalSub === 'today' ? todayPlayers : (data?.gs_all || data?.gs_top25 || []);
                 return (
                   <FlatList
                     data={players}
                     keyExtractor={(p,i) => p.player_id || p.player+i}
                     renderItem={({ item, index }) => (
-                      <GoalScorerRow player={item} rank={index+1} onPress={(p) => setSelectedPlayer(p)} />
+                      <GoalScorerRow player={item} rank={index+1} onPress={(p) => setSelectedPlayer({player:p, market:'goal'})} />
                     )}
                     contentContainerStyle={{ paddingBottom: 40 }}
                     refreshControl={
@@ -2061,7 +2160,7 @@ export default function App() {
                     ListHeaderComponent={
                       <View>
                         <Text style={styles.listHeader}>
-                          {goalSub === 'today' ? 'GOALS — TODAY' : 'GOALS — SEASON'}
+                          {goalSub === 'today' ? 'GOALS — TODAY' : 'GOALS — ALL PLAYERS'}
                         </Text>
                         {goalSub === 'today' && players.length === 0 && (
                           <Text style={styles.emptySub}>No tracked players have fixtures today</Text>
@@ -2080,7 +2179,7 @@ export default function App() {
               data={{ ...data, all_players: data?.gs_all || [] }}
               filter={playerFilter}
               setFilter={setPlayerFilter}
-              onPlayerPress={setSelectedPlayer}
+              onPlayerPress={(p) => setSelectedPlayer({player:p, market:'assist'})}
               isGoals={true}
             />
           )}
@@ -2093,11 +2192,11 @@ export default function App() {
       {tab === 'tsoa' && (
         <View style={styles.flex}>
           <SubTabBar
-            tabs={[['today','Today'],['season','Season'],['all','All Players'],['leagues','By League']]}
+            tabs={[['today','Today'],['all','All Players'],['leagues','By League']]}
             active={tsoaSub}
             onChange={setTsoaSub}
           />
-          {(tsoaSub === 'today' || tsoaSub === 'season') && (
+          {(tsoaSub === 'today' || tsoaSub === 'all') && (
             loading ? <View style={styles.center}><ActivityIndicator size="large" color={C.accent} /></View>
             : !hasData ? <View style={styles.center}>
                 <Text style={styles.emptyIcon}>🎯</Text>
@@ -2107,14 +2206,14 @@ export default function App() {
                 </TouchableOpacity>
               </View>
             : (() => {
-                const todayPlayers = (data?.tsoa_top25 || []).filter(p => todayFixtureTeams.has(normTeam(p.team)));
-                const players = tsoaSub === 'today' ? todayPlayers : (data?.tsoa_top25 || []);
+                const todayPlayers = (data?.tsoa_all || data?.tsoa_top25 || []).filter(p => todayFixtureTeams.has(normTeam(p.team))).sort((a,b) => b.tsoa_score - a.tsoa_score).slice(0,50);
+                const players = tsoaSub === 'today' ? todayPlayers : (data?.tsoa_all || data?.tsoa_top25 || []);
                 return (
                   <FlatList
                     data={players}
                     keyExtractor={(p,i) => p.player_id || p.player+i}
                     renderItem={({ item, index }) => (
-                      <TSOARow player={item} rank={index+1} onPress={setSelectedPlayer} />
+                      <TSOARow player={item} rank={index+1} onPress={(p) => setSelectedPlayer({player:p, market:'tsoa'})} />
                     )}
                     contentContainerStyle={{ paddingBottom: 40 }}
                     refreshControl={
@@ -2124,7 +2223,7 @@ export default function App() {
                     ListHeaderComponent={
                       <View>
                         <Text style={styles.listHeader}>
-                          {tsoaSub === 'today' ? 'TSOA — TODAY' : 'TSOA — SEASON'}
+                          {tsoaSub === 'today' ? 'TSOA — TODAY' : 'TSOA — ALL PLAYERS'}
                         </Text>
                         {tsoaSub === 'today' && players.length === 0 && (
                           <Text style={styles.emptySub}>No tracked players have fixtures today</Text>
@@ -2143,7 +2242,7 @@ export default function App() {
               data={{ ...data, all_players: data?.tsoa_all || [] }}
               filter={playerFilter}
               setFilter={setPlayerFilter}
-              onPlayerPress={setSelectedPlayer}
+              onPlayerPress={(p) => setSelectedPlayer({player:p, market:'assist'})}
               isTSOA={true}
             />
           )}
@@ -2223,7 +2322,13 @@ export default function App() {
         </ScrollView>
       )}
 
-      <PlayerModal player={selectedPlayer} onClose={() => setSelectedPlayer(null)} apiUrl={colabUrl || apiUrl} />
+      <PlayerModal
+        player={selectedPlayer?.player || selectedPlayer}
+        market={selectedPlayer?.market || 'assist'}
+        allData={data}
+        onClose={() => setSelectedPlayer(null)}
+        apiUrl={colabUrl || apiUrl}
+      />
       {selectedMatch && (
         <MatchScreen
           match={selectedMatch}
@@ -2231,7 +2336,7 @@ export default function App() {
           colabUrl={colabUrl}
           top25={data?.top25 || []}
           onClose={() => setSelectedMatch(null)}
-          onPlayerPress={setSelectedPlayer}
+          onPlayerPress={(p) => setSelectedPlayer({player:p, market:'assist'})}
         />
       )}
     </SafeAreaView>
@@ -2267,7 +2372,7 @@ const styles = StyleSheet.create({
   fixturesSectionHeader: { color: C.muted, fontSize: 11, fontWeight: '700',
                            letterSpacing: 1.5, paddingHorizontal: 16,
                            paddingTop: 16, paddingBottom: 6 },
-  fixtureLeagueLabel:{ color: C.accentDim, fontSize: 10, fontWeight: '700',
+  fixtureLeagueLabel:{ color: C.sub, fontSize: 10, fontWeight: '700',
                        letterSpacing: 1, paddingHorizontal: 16,
                        paddingTop: 8, paddingBottom: 2 },
   fixtureCard:       { marginHorizontal: 12, marginBottom: 4, backgroundColor: C.card,
