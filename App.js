@@ -10,13 +10,13 @@ const DEFAULT_API_URL = 'https://web-production-0e482.up.railway.app';
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
 const C = {
-  bg:        '#0A0A0F',
+  bg:        '#030A14',
   surface:   '#13131A',
   card:      '#15151E',
   border:    '#18181F',
-  accent:    '#6D5AE6',
-  accentDim: '#1C1830',
-  accentLt:  '#9D8DF1',
+  accent:    '#0A6A8A',
+  accentDim: '#041828',
+  accentLt:  '#3ABDD5',
   green:     '#3DDC84',
   red:       '#FF6B6B',
   orange:    '#FF9500',
@@ -1074,7 +1074,7 @@ const TeamStatsCard = ({ teamStats, teamName, isHome, fallbackGa }) => {
 };
 
 // ── Fixtures Tab ──────────────────────────────────────────────────────────────
-const FixturesTab = ({ fixtures, loading, onLoad, onMatchPress }) => {
+const FixturesTab = ({ fixtures, loading, onLoad, onMatchPress, fixtureTab, setFixtureTab }) => {
   if (loading) return (
     <View style={styles.center}>
       <ActivityIndicator size="large" color={C.accent} />
@@ -1107,29 +1107,81 @@ const FixturesTab = ({ fixtures, loading, onLoad, onMatchPress }) => {
   const finished = allMatches.filter(m => m.finished)
                              .sort((a,b) => (b.kickoff||'').localeCompare(a.kickoff||''));
 
-  const sections = [];
-  if (live.length > 0)     sections.push({ title: '🔴 LIVE', data: live });
-  if (upcoming.length > 0) sections.push({ title: 'UPCOMING', data: upcoming });
-  if (finished.length > 0) sections.push({ title: 'RESULTS', data: finished });
+  // Group upcoming by date
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+  const tom = new Date(now); tom.setDate(tom.getDate()+1);
+  const tomStr = `${tom.getFullYear()}-${String(tom.getMonth()+1).padStart(2,'0')}-${String(tom.getDate()).padStart(2,'0')}`;
+
+  const dateLabel = (d) => {
+    if (d === todayStr) return 'Today';
+    if (d === tomStr) return 'Tomorrow';
+    const dt = new Date(d+'T12:00:00');
+    return dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+  };
+
+  // Get unique dates from upcoming
+  const parseKoDate = ko => {
+    if (!ko) return '';
+    return ko.length >= 8 && ko[4] !== '-'
+      ? `${ko.slice(0,4)}-${ko.slice(4,6)}-${ko.slice(6,8)}`
+      : ko.slice(0,10);
+  };
+  const upcomingDates = [...new Set(upcoming.map(m => parseKoDate(m.kickoff)).filter(Boolean))].sort();
+
+  // Build tabs: Live (if any), then each date, then Results
+  const tabs = [];
+  if (live.length > 0) tabs.push({ key: 'live', label: '🔴 Live' });
+  upcomingDates.forEach(d => tabs.push({ key: d, label: dateLabel(d) }));
+  if (finished.length > 0) tabs.push({ key: 'results', label: 'Results' });
+
+  // Default to today's date tab if available, otherwise first tab
+  const now2 = new Date();
+  const todayKey = `${now2.getFullYear()}-${String(now2.getMonth()+1).padStart(2,'0')}-${String(now2.getDate()).padStart(2,'0')}`;
+  const defaultTab = tabs.find(t => t.key === todayKey)?.key || tabs.find(t => t.key === 'live')?.key || tabs[0]?.key || 'live';
+  const activeTab = tabs.find(t => t.key === fixtureTab) ? fixtureTab : defaultTab;
+
+  // Get matches for active tab
+  const activeMatches = activeTab === 'live' ? live
+    : activeTab === 'results' ? finished
+    : upcoming.filter(m => parseKoDate(m.kickoff||'') === activeTab);
 
   return (
-    <ScrollView style={styles.flex} contentContainerStyle={{ paddingBottom: 40 }}
-      refreshControl={
-        <RefreshControl refreshing={loading} onRefresh={onLoad}
-          tintColor={C.accent} colors={[C.accent]} />
-      }>
-      {sections.map(({ title, data }) => (
-        <View key={title}>
-          <Text style={styles.fixturesSectionHeader}>{title}</Text>
-          {data.map((match, i) => (
+    <View style={styles.flex}>
+      {/* Date sub-tabs */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}
+        style={styles.fixtureDateBar}
+        contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 4, flexDirection: 'row', alignItems: 'center' }}>
+        {tabs.map(t => (
+          <TouchableOpacity key={t.key}
+            style={[styles.fixtureDateTab, activeTab === t.key && styles.fixtureDateTabActive]}
+            onPress={() => setFixtureTab(t.key)}>
+            <Text style={[styles.fixtureDateLabel, activeTab === t.key && styles.fixtureDateLabelActive]}>
+              {t.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      <ScrollView style={styles.flex} contentContainerStyle={{ paddingBottom: 40 }}
+        refreshControl={
+          <RefreshControl refreshing={loading} onRefresh={onLoad}
+            tintColor={C.accent} colors={[C.accent]} />
+        }>
+        {activeMatches.length === 0 ? (
+          <View style={styles.center}>
+            <Text style={styles.emptyText}>No matches</Text>
+          </View>
+        ) : (
+          activeMatches.map((match, i) => (
             <View key={match.match_id || i}>
               <Text style={styles.fixtureLeagueLabel}>{leagueLabel(match.league)}</Text>
               <FixtureCard match={match} onPress={onMatchPress} />
             </View>
-          ))}
-        </View>
-      ))}
-    </ScrollView>
+          ))
+        )}
+      </ScrollView>
+    </View>
   );
 };
 
@@ -1663,24 +1715,41 @@ export default function App() {
   const [colabUrl,   setColabUrl]   = useState('');
   const [standings,   setStandings]   = useState(null);
   const [assistSub,   setAssistSub]   = useState('today');
+  const [fixtureTab,  setFixtureTab]  = useState('live');
   const [goalSub,     setGoalSub]     = useState('today');
   const [tsoaSub,     setTsoaSub]     = useState('today');
   const [autoRefresh, setAutoRefresh] = useState(true);
 
-  // Build set of team IDs from upcoming + live fixtures
-  const todayTeamIds = React.useMemo(() => {
-    const ids = new Set();
-    if (!fixtures) return ids;
-    Object.values(fixtures).forEach(matches => {
-      matches.forEach(m => {
-        if (!m.finished) {
-          if (m.home_id) ids.add(String(m.home_id));
-          if (m.away_id) ids.add(String(m.away_id));
-        }
-      });
+  // Shared team name normalizer
+  const normTeam = s => (s||'').toLowerCase().replace(/fc|af|sc|ac|cf|fk|sk|bc/g,'').replace(/[^a-z0-9]/g,'');
+
+  // Teams playing today — based on device local date
+  const todayFixtureTeams = React.useMemo(() => {
+    const names = new Set();
+    if (!fixtures) return names;
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    const allM = Object.values(fixtures).flat();
+    allM.forEach(m => {
+      if (!m.kickoff && !m.live) return;
+      if (m.live) {
+        if (m.home) names.add(normTeam(m.home));
+        if (m.away) names.add(normTeam(m.away));
+        return;
+      }
+      // Handle both "2026-03-16T19:45:00Z" and "20260316T19:45:00Z" formats
+      const ko = m.kickoff || '';
+      const koDate = ko.length >= 8 && ko[4] !== '-'
+        ? `${ko.slice(0,4)}-${ko.slice(4,6)}-${ko.slice(6,8)}`
+        : ko.slice(0,10);
+      if (koDate === todayStr) {
+        if (m.home) names.add(normTeam(m.home));
+        if (m.away) names.add(normTeam(m.away));
+      }
     });
-    return ids;
+    return names;
   }, [fixtures]);
+
   const [playerFilter, setPlayerFilter] = useState({
     minAssists: 0,
     minXaGap:   -99,
@@ -1827,10 +1896,10 @@ export default function App() {
       {/* Header */}
       <View style={styles.header}>
         <View>
-          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 7 }}>
-              <Text style={styles.headerTitle}>Forma</Text>
-              <Text style={styles.headerSport}>football</Text>
-            </View>
+          <View style={{flexDirection:'row', alignItems:'baseline', gap:8}}>
+            <Text style={styles.headerTitle}>Deep Current</Text>
+            <Text style={{color:'#4AAEC8', fontSize:12, fontStyle:'italic', fontFamily:'Georgia'}}>football</Text>
+          </View>
           {data?.last_updated && (() => {
               const timeAgo = (str) => {
                 try {
@@ -1891,6 +1960,8 @@ export default function App() {
           loading={fixturesLoading}
           onLoad={loadFixtures}
           onMatchPress={setSelectedMatch}
+          fixtureTab={fixtureTab}
+          setFixtureTab={setFixtureTab}
         />
       )}
 
@@ -1911,9 +1982,7 @@ export default function App() {
                 </TouchableOpacity>
               </View>
             : (() => {
-                const todayPlayers = (data.top25 || []).filter(p =>
-                  todayTeamIds.has(String(p.team_id))
-                );
+                const todayPlayers = (data.top25 || []).filter(p => todayFixtureTeams.has(normTeam(p.team)));
                 const players = assistSub === 'today' ? todayPlayers : (data.top25 || []);
                 return (
                   <FlatList
@@ -1933,15 +2002,7 @@ export default function App() {
                           {assistSub === 'today' ? 'ASSISTS — TODAY' : 'ASSISTS — SEASON'}
                         </Text>
                         {assistSub === 'today' && players.length === 0 && (
-                          <View>
-                            <Text style={styles.emptySub}>No tracked players have fixtures today</Text>
-                            <Text style={[styles.emptySub, {color: C.accent}]}>
-                              fixture teams: {todayTeamIds.size} | sample: {[...todayTeamIds][0]||'none'}
-                            </Text>
-                            <Text style={[styles.emptySub, {color: C.green}]}>
-                              player sample team_id: {String((data.top25||[])[0]?.team_id||'none')}
-                            </Text>
-                          </View>
+                          <Text style={styles.emptySub}>No tracked players in this fixture date</Text>
                         )}
                         <View style={styles.legendRow}>
                           <Text style={styles.legendItem}>🛡️ Weak opp defense (GA/G ≥ 1.5)</Text>
@@ -1983,9 +2044,7 @@ export default function App() {
                 </TouchableOpacity>
               </View>
             : (() => {
-                const todayPlayers = (data?.gs_top25 || []).filter(p =>
-                  todayTeamIds.has(String(p.team_id))
-                );
+                const todayPlayers = (data?.gs_top25 || []).filter(p => todayFixtureTeams.has(normTeam(p.team)));
                 const players = goalSub === 'today' ? todayPlayers : (data?.gs_top25 || []);
                 return (
                   <FlatList
@@ -2048,9 +2107,7 @@ export default function App() {
                 </TouchableOpacity>
               </View>
             : (() => {
-                const todayPlayers = (data?.tsoa_top25 || []).filter(p =>
-                  todayTeamIds.has(String(p.team_id))
-                );
+                const todayPlayers = (data?.tsoa_top25 || []).filter(p => todayFixtureTeams.has(normTeam(p.team)));
                 const players = tsoaSub === 'today' ? todayPlayers : (data?.tsoa_top25 || []);
                 return (
                   <FlatList
@@ -2188,12 +2245,12 @@ const styles = StyleSheet.create({
   header:            { flexDirection: 'row', justifyContent: 'space-between',
                        alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12,
                        borderBottomWidth: 1, borderBottomColor: C.border },
-  headerTitle:       { color: '#9D8DF1', fontSize: 30, fontWeight: '900',
-                     letterSpacing: -1, fontFamily: 'Georgia' },
+  headerTitle:       { color: '#E8F4FF', fontSize: 28, fontWeight: '900',
+                     letterSpacing: -1.5, fontFamily: 'Georgia' },
   headerSport:       { color: '#ffffff', fontSize: 16, fontWeight: '400',
                      fontStyle: 'italic', fontFamily: 'Georgia', opacity: 0.6 },
   headerSub:         { color: C.muted, fontSize: 11, marginTop: 2 },
-  refreshBtn:        { backgroundColor: '#6D5AE6', paddingHorizontal: 16,
+  refreshBtn:        { backgroundColor: '#0A6A8A', paddingHorizontal: 16,
                        paddingVertical: 8, borderRadius: 20 },
   refreshBtnActive:  { backgroundColor: '#4A3DB0' },
   refreshBtnText:    { color: C.bg, fontWeight: '700', fontSize: 14 },
@@ -2202,9 +2259,9 @@ const styles = StyleSheet.create({
   tabs:              { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#18181F',
                        backgroundColor: C.bg, paddingHorizontal: 4 },
   tab:               { flex: 1, paddingVertical: 10, alignItems: 'center' },
-  tabActive:         { borderBottomWidth: 2, borderBottomColor: '#9D8DF1' },
+  tabActive:         { borderBottomWidth: 2, borderBottomColor: '#3ABDD5' },
   tabText:           { color: '#444455', fontSize: 12, fontWeight: '600' },
-  tabTextActive:     { color: '#9D8DF1' },
+  tabTextActive:     { color: '#3ABDD5' },
 
   // Fixtures
   fixturesSectionHeader: { color: C.muted, fontSize: 11, fontWeight: '700',
@@ -2467,6 +2524,14 @@ const styles = StyleSheet.create({
   teamStatLabel:    { color: C.sub, fontSize: 12, flex: 1 },
   teamStatVal:      { fontSize: 13, fontWeight: '700', minWidth: 40, textAlign: 'right' },
   teamStatAvg:      { color: C.muted, fontSize: 11, minWidth: 60, textAlign: 'right' },
+
+  // Fixture date tabs — pill style matching SubTabBar
+  fixtureDateBar:        { backgroundColor: C.bg, maxHeight: 36 },
+  fixtureDateTab:        { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20,
+                           marginRight: 6, backgroundColor: C.surface, alignSelf: 'flex-start' },
+  fixtureDateTabActive:  { backgroundColor: C.accent },
+  fixtureDateLabel:      { color: '#fff', fontSize: 11, fontWeight: '600' },
+  fixtureDateLabelActive:{ color: '#fff', fontSize: 11, fontWeight: '700' },
 
   // Settings toggle
   settingsToggleRow: { flexDirection: 'row', alignItems: 'center',
